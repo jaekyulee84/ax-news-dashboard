@@ -2,170 +2,185 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-DB_NAME = "news.db"
+DB_NAME = "enterprise.db"
 
 st.set_page_config(
-    page_title="AX 딥트윈 투자 분석 대시보드", page_icon="🧠", layout="wide"
+    page_title="Defense AX-Radar | 국방 R&D 및 신뢰성 인텔리전스",
+    page_icon="🛡️",
+    layout="wide",
 )
 
 
-def load_data():
-  """articles 테이블과 deeptwin_insights 테이블을 JOIN하여 조회"""
+def load_defense_rnd_data():
+  """국방 R&D 사업 및 신뢰성 시험 요구도 데이터 조회"""
   with sqlite3.connect(DB_NAME) as conn:
     query = """
-            SELECT 
-                a.id, 
-                a.title, 
-                a.url, 
-                a.category, 
-                a.published_at,
-                d.signal_type,
-                d.impact_horizon,
-                d.risk_score,
-                d.key_thesis,
-                d.analyzed_at
-            FROM articles a
-            LEFT JOIN deeptwin_insights d ON a.id = d.article_id
-            ORDER BY a.id DESC
+            SELECT id, announcement_title, agency, target_trl, env_standards, 
+                   reliability_scope, feasibility_status, expert_opinion, created_at 
+            FROM defense_rnd_radar 
+            ORDER BY id DESC
         """
-    df = pd.read_sql_query(query, conn)
-  return df
+    return pd.read_sql_query(query, conn)
 
 
-# 1. 헤더
-st.title("🧠 AX 딥트윈 투자 분석 대시보드")
+def load_defense_market_data():
+  """국내외 방산 기술 및 수출 전망 데이터 조회"""
+  with sqlite3.connect(DB_NAME) as conn:
+    query = """
+            SELECT id, source_scope, headline, company_or_nation, tech_domain, 
+                   signal_type, strategic_implication, created_at 
+            FROM defense_market_intel 
+            ORDER BY id DESC
+        """
+    return pd.read_sql_query(query, conn)
+
+
+# 1. 헤더 및 브리핑 소개
+st.title("🛡️ Defense AX-Radar : 국방 R&D 및 신뢰성 시험 인텔리전스")
 st.caption(
-    "베테랑 투자자의 암묵지(Deeptwin)를 이식하여 실시간 뉴스의 실질적"
-    " 시장 파급력과 리스크를 선별합니다."
+    "국방 R&D 사업 공고의 신뢰성/환경시험(MIL-STD) 요구도 진단 및 글로벌 방산 기술·수출"
+    " 전망을 실시간 브리핑합니다."
 )
 
-df = load_data()
+rnd_df = load_defense_rnd_data()
+market_df = load_defense_market_data()
 
-if df.empty:
-  st.warning("수집된 데이터가 없습니다. 크롤러를 먼저 실행해 주세요.")
-  st.stop()
+# 2. 상단 핵심 KPI 메트릭 카드
+col1, col2, col3, col4 = st.columns(4)
 
-# 2. 핵심 KPI 메트릭 카드
-catalyst_count = len(df[df["signal_type"].str.contains("Catalyst", na=False)])
-risk_count = len(df[df["signal_type"].str.contains("Risk", na=False)])
-noise_count = len(df[df["signal_type"].str.contains("Noise", na=False)])
-
-m1, m2, m3, m4 = st.columns(4)
-with m1:
-  st.metric(label="총 분석 기사", value=f"{len(df)}건")
-with m2:
+with col1:
   st.metric(
-      label="🚀 투자 촉매 (Catalyst)",
-      value=f"{catalyst_count}건",
-      delta="핵심 모멘텀",
+      label="📋 모니터링 국방 R&D 과제",
+      value=f"{len(rnd_df)}건",
+      delta="방사청·국기연·ADD",
   )
-with m3:
+with col2:
+  mil_count = len(
+      rnd_df[rnd_df["env_standards"].str.contains("MIL-STD-810", na=False)]
+  )
   st.metric(
-      label="🚨 위험 경고 (Risk)",
-      value=f"{risk_count}건",
-      delta="-주의 필요",
+      label="🧪 MIL-STD-810 환경시험 과제",
+      value=f"{mil_count}건",
+      delta="시험평가 필수",
+  )
+with col3:
+  export_catalyst = len(
+      market_df[market_df["signal_type"].str.contains("수출 기회", na=False)]
+  )
+  st.metric(
+      label="🚀 K-방산 글로벌 수출 기회",
+      value=f"{export_catalyst}건",
+      delta="수주 파이프라인",
+  )
+with col4:
+  tech_disruption = len(
+      market_df[market_df["signal_type"].str.contains("기술 격차", na=False)]
+  )
+  st.metric(
+      label="⚡ 글로벌 차세대 기술 격차",
+      value=f"{tech_disruption}건",
+      delta="선행 R&D 검토",
       delta_color="inverse",
   )
-with m4:
-  st.metric(label="⚪ 단순 소음 (Noise)", value=f"{noise_count}건", delta="필터링")
 
 st.divider()
 
 # 3. 사이드바 필터
-st.sidebar.header("🔍 탐색 필터")
-categories = ["전체"] + sorted(df["category"].dropna().unique().tolist())
-selected_category = st.sidebar.selectbox("기본 카테고리", categories)
+st.sidebar.header("🔍 국방 데이터 필터")
+agency_list = ["전체"] + sorted(rnd_df["agency"].dropna().unique().tolist())
+selected_agency = st.sidebar.selectbox("발주 기관 필터", agency_list)
 
-signals = ["전체", "Catalyst (촉매)", "Risk (경고)", "Neutral (관망)", "Noise (소음)"]
-selected_signal = st.sidebar.selectbox("딥트윈 시그널 필터", signals)
-
-search_keyword = st.sidebar.text_input("제목 키워드 검색", "")
-
-# 필터링 적용
-filtered_df = df.copy()
-if selected_category != "전체":
-  filtered_df = filtered_df[filtered_df["category"] == selected_category]
-
-if selected_signal != "전체":
-  filtered_df = filtered_df[
-      filtered_df["signal_type"].str.contains(
-          selected_signal.split()[0], na=False
-      )
-  ]
-
-if search_keyword:
-  filtered_df = filtered_df[
-      filtered_df["title"].str.contains(search_keyword, case=False, na=False)
-  ]
-
-# 4. 탭 구성 (3개 탭으로 확장)
-tab1, tab2, tab3 = st.tabs(
-    ["🧠 딥트윈 투자 인사이트", "📊 카테고리 통계", "📋 전체 기사 원장"]
+tech_domains = ["전체"] + sorted(
+    market_df["tech_domain"].dropna().unique().tolist()
 )
+selected_domain = st.sidebar.selectbox("방산 기술 도메인", tech_domains)
 
-# [신규 탭] 딥트윈 전용 투자 리포트 뷰
-with tab1:
-  st.subheader(f"베테랑 투자자 분석 뷰 (조회 {len(filtered_df)}건)")
-
-  # 딥트윈 분석 데이터가 있는 기사들을 카드 형태로 출력
-  insights_df = filtered_df[filtered_df["signal_type"].notna()]
-
-  if insights_df.empty:
-    st.info(
-      "선택된 필터에 해당하는 딥트윈 분석 결과가 없습니다. `deeptwin_analyst.py`를"
-      " 실행하여 분석을 진행해 주세요."
-    )
-  else:
-    for _, row in insights_df.iterrows():
-      # 시그널 타입별 배지 스타일
-      signal = row["signal_type"]
-      if "Catalyst" in signal:
-        badge = "🟢 **[Catalyst / 성장 촉매]**"
-      elif "Risk" in signal:
-        badge = "🔴 **[Risk / 위험 경고]**"
-      elif "Noise" in signal:
-        badge = "⚪ **[Noise / 소음 배제]**"
-      else:
-        badge = "🟡 **[Neutral / 중립 관망]**"
-
-      with st.expander(f"{badge} {row['title']}", expanded=True):
-        c1, c2 = st.columns(2)
-        with c1:
-          st.write(f"**위험도 스코어:** {row['risk_score']} / 5")
-          st.write(f"**파급 기간:** {row['impact_horizon']}")
-          st.markdown(f"[🔗 원문 기사 열기]({row['url']})")
-        with c2:
-          st.markdown(f"**💡 베테랑 투자자의 핵심 명제 (Key Thesis):**")
-          st.info(row["key_thesis"])
-          st.caption(
-              f"카테고리: {row['category']} | 분석시점: {row['analyzed_at']}"
-          )
-
-with tab2:
-  st.subheader("데이터 분류 통계")
-  col_a, col_b = st.columns(2)
-  with col_a:
-    st.write("기본 카테고리 분포")
-    st.bar_chart(df["category"].value_counts())
-  with col_b:
-    st.write("딥트윈 시그널 분포")
-    st.bar_chart(df["signal_type"].value_counts())
-
-with tab3:
-  st.subheader("원시 데이터 테이블")
-  st.dataframe(
-      filtered_df[[
-          "id",
-          "category",
-          "signal_type",
-          "title",
-          "published_at",
-          "url",
-      ]],
-      column_config={"url": st.column_config.LinkColumn("원문 링크")},
-      use_container_width=True,
-      hide_index=True,
-  )
-
-if st.sidebar.button("🔄 데이터 새로고침"):
+if st.sidebar.button("🔄 최신 데이터 새로고침"):
   st.rerun()
+
+# 4. 3대 전용 인텔리전스 탭 구성
+tab1, tab2, tab3 = st.tabs([
+    "🎯 국방 R&D & 신뢰성 시험 요구도 진단",
+    "🌐 국내외 방산 기술력 & 수출 전망",
+    "📊 부서별 대응 Action Item 종합",
+])
+
+# [탭 1] 국방 R&D 과제 및 신뢰성 시험 요구도
+with tab1:
+  st.subheader("🎯 국방 R&D 과제별 신뢰성/환경시험 요구도 분석 뷰")
+
+  filtered_rnd = rnd_df.copy()
+  if selected_agency != "전체":
+    filtered_rnd = filtered_rnd[filtered_rnd["agency"] == selected_agency]
+
+  for _, row in filtered_rnd.iterrows():
+    # 적합성 상태별 배지
+    status = row["feasibility_status"]
+    if "적합" in status:
+      badge = "🟢 [수행 적합]"
+    elif "검토" in status:
+      badge = "🟡 [인프라/치구 검토 요망]"
+    else:
+      badge = "⚪ [일반 관리]"
+
+    with st.expander(
+        f"{badge} [{row['agency']}] {row['announcement_title']}", expanded=True
+    ):
+      c1, c2 = st.columns(2)
+      with c1:
+        st.markdown(f"**🎯 목표 TRL:** `{row['target_trl']}`")
+        st.markdown(f"**📜 적용 규격:** `{row['env_standards']}`")
+        st.markdown(f"**🌊 환경/신뢰성 시험 범위:**")
+        st.info(row["reliability_scope"])
+      with c2:
+        st.markdown(f"**💡 신뢰성 엔지니어 딥트윈 조치 의견:**")
+        st.success(row["expert_opinion"])
+        st.caption(f"등록 시점: {row['created_at']}")
+
+# [탭 2] 국내외 방산 기술력 및 수출 전망
+with tab2:
+  st.subheader("🌐 글로벌 방산 기술 동향 및 국가별 수출 파이프라인")
+
+  filtered_mkt = market_df.copy()
+  if selected_domain != "전체":
+    filtered_mkt = filtered_mkt[filtered_mkt["tech_domain"] == selected_domain]
+
+  for _, row in filtered_mkt.iterrows():
+    sig = row["signal_type"]
+    if "기회" in sig:
+      sig_badge = "🟢 [수출 기회]"
+    elif "격차" in sig:
+      sig_badge = "⚡ [기술 격차 경계]"
+    elif "리스크" in sig:
+      sig_badge = "🔴 [수출/규제 리스크]"
+    else:
+      sig_badge = "🔵 [시장 동향]"
+
+    with st.expander(
+        f"{sig_badge} [{row['source_scope']}] {row['headline']}", expanded=True
+    ):
+      m1, m2 = st.columns(2)
+      with m1:
+        st.markdown(f"**🎯 타깃 기업/국가:** `{row['company_or_nation']}`")
+        st.markdown(f"**🛠️ 기술 분야:** `{row['tech_domain']}`")
+        st.markdown(f"**📌 시그널 유형:** `{row['signal_type']}`")
+      with m2:
+        st.markdown(f"**💡 전략적 시사점 및 대응 방향:**")
+        st.warning(row["strategic_implication"])
+        st.caption(f"수집 시점: {row['created_at']}")
+
+# [탭 3] Action Item 종합 요약
+with tab3:
+  st.subheader("📊 부서별 즉시 조치 Action Item 매트릭스")
+  st.markdown("#### 1. 신뢰성 시험 및 평가팀 Action Plan")
+  for _, r in rnd_df.iterrows():
+    st.write(
+        f"• **[{r['agency']}]** {r['announcement_title']} ➜ *{r['expert_opinion']}*"
+    )
+
+  st.markdown("#### 2. 전략기획 및 해외사업팀 Action Plan")
+  for _, m in market_df.iterrows():
+    st.write(
+        f"• **[{m['company_or_nation']}]** {m['headline']} ➜"
+        f" *{m['strategic_implication']}*"
+    )
