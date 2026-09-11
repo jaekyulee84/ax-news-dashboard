@@ -1,0 +1,13 @@
+# 프로젝트 개발 표준 규칙
+
+## 1. 기술 스택
+- Language: Python 3.11+
+- Database: SQLite3 (news.db)
+- 주요 라이브러리: requests, beautifulsoup4, schedule
+
+## 2. 코딩 컨벤션 및 아키텍처 규칙
+- 모든 DB 연소 작업은 반드시 `with sqlite3.connect()` context manager를 사용할 것.
+- 데이터 적재 시 URL 중복 여부를 검사하여 중복 저장을 방지할 것 (IntegrityError 예외 처리 필수).
+- 크롤링 시 반드시 User-Agent 헤더를 포함할 것.
+- 새로운 기능을 추가할 때는 기존 `crawler.py`의 모듈성을 유지하고, 불필요하게 외부 라이브러리를 추가하지 말 것.
+- 에러 발생 시 프로그램이 멈추지 않도록 적절한 try-except 로깅을 남길 것.
