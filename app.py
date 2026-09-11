@@ -1,3 +1,5 @@
+from datetime import datetime
+import os
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -35,11 +37,30 @@ def load_defense_market_data():
     return pd.read_sql_query(query, conn)
 
 
-# 1. 헤더 및 브리핑 소개
+def load_latest_brief():
+  """가장 최근에 생성된 모닝 브리핑 조회"""
+  with sqlite3.connect(DB_NAME) as conn:
+    cur = conn.cursor()
+    # 테이블 존재 여부 확인
+    cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND"
+        " name='executive_briefs'"
+    )
+    if not cur.fetchone():
+      return None
+
+    cur.execute(
+        "SELECT summary_markdown, created_at FROM executive_briefs ORDER BY"
+        " brief_id DESC LIMIT 1"
+    )
+    return cur.fetchone()
+
+
+# 1. 메인 헤더
 st.title("🛡️ Defense AX-Radar : 국방 R&D 및 신뢰성 시험 인텔리전스")
 st.caption(
-    "국방 R&D 사업 공고의 신뢰성/환경시험(MIL-STD) 요구도 진단 및 글로벌 방산 기술·수출"
-    " 전망을 실시간 브리핑합니다."
+    "국방 R&D 사업 공고의 신뢰성/환경시험(MIL-STD) 요구도 진단, 글로벌 방산 기술·수출"
+    " 전망 및 일일 경영진 브리핑을 원스톱 제공합니다."
 )
 
 rnd_df = load_defense_rnd_data()
@@ -85,7 +106,7 @@ with col4:
 
 st.divider()
 
-# 3. 사이드바 필터
+# 3. 사이드바 필터링
 st.sidebar.header("🔍 국방 데이터 필터")
 agency_list = ["전체"] + sorted(rnd_df["agency"].dropna().unique().tolist())
 selected_agency = st.sidebar.selectbox("발주 기관 필터", agency_list)
@@ -98,14 +119,15 @@ selected_domain = st.sidebar.selectbox("방산 기술 도메인", tech_domains)
 if st.sidebar.button("🔄 최신 데이터 새로고침"):
   st.rerun()
 
-# 4. 3대 전용 인텔리전스 탭 구성
-tab1, tab2, tab3 = st.tabs([
-    "🎯 국방 R&D & 신뢰성 시험 요구도 진단",
+# 4. 4대 전용 탭 구성 (이전 기능 + 신규 모닝 브리핑 탭 완벽 통합)
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🎯 국방 R&D & 신뢰성 시험 요구도",
     "🌐 국내외 방산 기술력 & 수출 전망",
     "📊 부서별 대응 Action Item 종합",
+    "📄 오늘의 국방 모닝 브리핑",
 ])
 
-# [탭 1] 국방 R&D 과제 및 신뢰성 시험 요구도
+# [탭 1] 국방 R&D 과제 및 신뢰성 시험 요구도 뷰
 with tab1:
   st.subheader("🎯 국방 R&D 과제별 신뢰성/환경시험 요구도 분석 뷰")
 
@@ -114,7 +136,6 @@ with tab1:
     filtered_rnd = filtered_rnd[filtered_rnd["agency"] == selected_agency]
 
   for _, row in filtered_rnd.iterrows():
-    # 적합성 상태별 배지
     status = row["feasibility_status"]
     if "적합" in status:
       badge = "🟢 [수행 적합]"
@@ -137,7 +158,7 @@ with tab1:
         st.success(row["expert_opinion"])
         st.caption(f"등록 시점: {row['created_at']}")
 
-# [탭 2] 국내외 방산 기술력 및 수출 전망
+# [탭 2] 국내외 방산 기술력 및 수출 전망 뷰
 with tab2:
   st.subheader("🌐 글로벌 방산 기술 동향 및 국가별 수출 파이프라인")
 
@@ -169,7 +190,7 @@ with tab2:
         st.warning(row["strategic_implication"])
         st.caption(f"수집 시점: {row['created_at']}")
 
-# [탭 3] Action Item 종합 요약
+# [탭 3] 부서별 대응 Action Item 종합 매트릭스
 with tab3:
   st.subheader("📊 부서별 즉시 조치 Action Item 매트릭스")
   st.markdown("#### 1. 신뢰성 시험 및 평가팀 Action Plan")
@@ -183,4 +204,39 @@ with tab3:
     st.write(
         f"• **[{m['company_or_nation']}]** {m['headline']} ➜"
         f" *{m['strategic_implication']}*"
+    )
+
+# [탭 4] 신규 추가: 오늘의 국방 모닝 브리핑 (Executive Briefing)
+with tab4:
+  st.subheader("📄 A4 1장 모닝 인텔리전스 브리핑 리포트")
+
+  brief_data = load_latest_brief()
+
+  c_btn1, c_btn2 = st.columns(2)
+  with c_btn1:
+    if st.button("⚡ 지금 즉시 새 브리핑 생성"):
+      from daily_brief_generator import generate_executive_brief
+
+      generate_executive_brief()
+      st.rerun()
+
+  if brief_data:
+    brief_content, brief_time = brief_data
+    with c_btn2:
+      st.download_button(
+          label="📥 A4 보고서 마크다운 다운로드 (인쇄/사내공유)",
+          data=brief_content,
+          file_name=(
+              f"Defense_Morning_Brief_{datetime.now().strftime('%Y%m%d')}.md"
+          ),
+          mime="text/markdown",
+      )
+
+    st.markdown("---")
+    st.markdown(brief_content)
+    st.caption(f"최근 브리핑 발행 시점: {brief_time}")
+  else:
+    st.info(
+        "아직 생성된 브리핑이 없습니다. 위의 **'⚡ 지금 즉시 새 브리핑 생성'**"
+        " 버튼을 누르시면 즉시 생성됩니다."
     )
